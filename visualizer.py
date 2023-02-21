@@ -1,10 +1,19 @@
+# data structures
 from queue import PriorityQueue  # for A*
 from collections import defaultdict, deque  # for BFS & DFS
 from pqdict import pqdict  # for Dijkstra's
 
+# random generation
+from random import seed, random, randint
+from time import time
+
+# user interface
+import pygame
+import ptext
+
+# miscellaneous
 from typing import Generator
 from math import inf
-import pygame
 
 # FRONTEND
 WIN_HEIGHT = 900  # window height
@@ -21,10 +30,11 @@ CYAN = (131, 252, 224)  # softish cyan
 TURQUOISE = (49, 208, 232)
 ORANGE = (255, 165 ,0)
 YELLOW = (242, 252, 131)
+PASTEL_YELLOW = (255, 240, 145)
 
 GRID_LINE = GRAY
 UNWEIGHTED = WHITE
-WEIGHTED = None  # make it very light yellow
+WEIGHTED = PASTEL_YELLOW  # make it very light yellow
 BARRIER = BLACK
 QUEUED = PURPLE  # in queue but not processed yet
 PASSED = CYAN  # out of queue and done processing
@@ -36,6 +46,7 @@ CURRENT = VIOLET  # too quick to see
 # BACKEND
 COORD_OFFSETS_CORNERS = [(-1, -1), (-1, 0), (-1, 1), (0, -1), (0, 1), (1, -1), (1, 0), (1, 1)]
 COORD_OFFSETS = [(-1, 0), (0, -1), (0, 1), (1, 0)]  # without corner nodes
+MAX_NODE_WEIGHT = 9  # max weight of weighted nodes
 
 
 class Node:
@@ -75,6 +86,16 @@ class Node:
         self.state = BARRIER
         self.weight = inf
 
+    def make_unweighted(self):
+        """ Set node to weighted node. """
+        self.state = UNWEIGHTED
+        self.weight = 0
+
+    def make_weighted(self, weight: int):
+        """ Set node to weighted node. """
+        self.state = WEIGHTED
+        self.weight = weight
+
     def is_barrier(self) -> bool:
         """ Returns whether node is a barrier. """
         return self.state == BARRIER
@@ -82,6 +103,10 @@ class Node:
     def is_empty(self) -> bool:
         """ Returns whether node is a traversable/empty node (not barrier). """
         return self.state != BARRIER
+
+    def is_weighted(self) -> bool:
+        """ Returns whether node is a weighted node. """
+        return 0 < self.weight < inf
 
 
 class Visualizer:
@@ -129,7 +154,7 @@ class Visualizer:
         for r in range(self.rows):
             for c in range(self.cols):
                 if self.get_node(r, c).state not in (UNWEIGHTED, WEIGHTED, START, TARGET, BARRIER):
-                    self.get_node(r, c).state = UNWEIGHTED
+                    self.get_node(r, c).state = WEIGHTED if self.get_node(r, c).is_weighted() else UNWEIGHTED
 
     def gen_grid(self) -> list[list]:
         """ Generate the grid of empty nodes. """
@@ -168,11 +193,11 @@ class Visualizer:
                 # draw column line from top edge at col pos, to bottom edge
                 pygame.draw.line(self.win, GRID_LINE, (c*self.cell_size, 0), (c*self.cell_size, self.win_height))
 
-    def draw_node(self, node):
+    def draw_node(self, node: Node):
         """ Draws given node onto pygame window. """
         pygame.draw.rect(self.win, node.state, (node.x, node.y, self.cell_size, self.cell_size))
 
-    def draw_node_grid(self, node):
+    def draw_node_grid(self, node: Node):
         """ Only draws the grid lines that are supposed to be around given node.  """
         # draw top line
         pygame.draw.line(self.win, GRID_LINE, (node.x, node.y), (node.x+self.cell_size, node.y))
@@ -190,9 +215,14 @@ class Visualizer:
         """ Delay some amount of time, for animation/visual purposes. """
         pygame.time.delay(int(wait*1000))
 
-    def update_node(self, node, wait: float = WAIT):
+    def update_node(self, node: Node, wait: float = WAIT):
         """ Draws given node and its grid, then updates display (more efficient then redrawing whole window every time). """
         self.draw_node(node)
+
+        # draw weight if it's a weighted node
+        if node.is_weighted():
+            self.draw_weight(node)
+
         self.draw_node_grid(node)
         if wait is not None:
             self.delay(wait)
@@ -207,6 +237,8 @@ class Visualizer:
         for row in self.grid:
             for node in row:
                 self.draw_node(node)
+                if node.is_weighted():
+                    self.draw_weight(node)
 
         # draw grid lines
         self.draw_grid_lines()
@@ -257,6 +289,15 @@ class Visualizer:
         else:
             print('cannot overwrite start/target node')
 
+    def place_weighted(self, node: Node, max_weight: int = MAX_NODE_WEIGHT):
+        """ Place weighted node and redraw (also handles conflicts). """
+        # as long as node isn't start or target, draws barrier
+        if node != self.start and node != self.target:
+            seed(time())
+            node.make_weighted(randint(1, max_weight))  # set to random weight
+        else:
+            print('cannot overwrite start/target node')
+
     # === BACKEND (algorithms) ===
 
     # pathfinding algorithms
@@ -281,6 +322,7 @@ class Visualizer:
 
     def bfs(self):
         """ Runs breadth first search for target node and then traces path back to start (unweighted). """
+        print('running BFS...')
         queue = deque([self.start])  # append and popleft
         discovered = {self.start}  # keeps track of discovered nodes
         parents = {self.start: None}  # keeps track of every node's parent
@@ -318,6 +360,7 @@ class Visualizer:
 
     def dfs(self):
         """ Runs depth first search for target node and then traces path back to start (unweighted). """
+        print('running DFS...')
         stack = deque([self.start])  # append and pop
         discovered = {self.start}  # keeps track of discovered nodes
         parents = {self.start: None}  # keeps track of every node's parent
@@ -356,6 +399,7 @@ class Visualizer:
 
     def dijkstra(self):
         """ Runs Dijkstra's. """
+        print('running Dijkstra\'s...')
         distances, parents = {}, defaultdict(lambda: None, {self.start: None})
         visited = set()  # keeps track of processed nodes
         ipq = pqdict({self.start: 0})  # indexed priority queue
@@ -373,7 +417,7 @@ class Visualizer:
             # if target node is found, traces paths back to start
             if curr == self.target:
                 curr.state = TARGET  # color curr back to target
-                self.update_node(curr)
+                self.update_node(curr, wait=0.15)
                 self.trace_path(parents)
                 return
 
@@ -388,7 +432,7 @@ class Visualizer:
                 # color the adjacent node
                 if adj != self.target and not adj.is_barrier():
                     adj.state = QUEUED
-                    self.update_node(adj)
+                    self.update_node(adj, wait=0.15)
 
                 # simply add edge if node isn't already queue
                 if adj not in ipq:
@@ -403,18 +447,35 @@ class Visualizer:
             # set current state to passed after it finishes processing
             if curr != self.start:
                 curr.state = PASSED
-                self.update_node(curr)
-
-
-
+                self.update_node(curr, wait=0.15)
 
     def a_star(self):
         """ Runs A* 😍😍😍 for target node and then traces path back to start (weighted). """
-        print('running a_star...')
+        print('running A*...')
 
-    # maze generation algorithms
-    def generate_maze(self):
-        """ Generates maze of barrier nodes using BLANK algorithm. """
+    # weighted graphs/maze generation algorithms
+    def generate_weighted_grid(self, density: float = 0.3, max_weight: int = MAX_NODE_WEIGHT):
+        """ Randomly fills grid with weighted nodes. """
+        seed(time())  # set the seed to the current time ensure randomness
+        for node in self.loop_all_nodes():
+            # skip barrier nodes
+            if node.state == BARRIER:
+                continue
+
+            # add weighted node
+            if random() < density:  # generate nodes by density
+                node.make_weighted(randint(1, max_weight))  # random weight
+                self.update_node(node)
+            else:
+                node.make_unweighted()
+                self.update_node(node)
+
+    def generate_maze_prims(self):
+        """ Generates random maze of barrier nodes using Prim's algorithm. """
+        pass
+
+    def generate_maze_kruskals(self):
+        """ Generates random maze of barrier nodes using Kruskal's algorithm. """
         pass
 
     # helper functions
@@ -422,10 +483,10 @@ class Visualizer:
         """ Generates a matrix the size of the grid. """
         matrix = []
 
-        for r in range(self.rows):
+        for _ in range(self.rows):
             matrix.append([])  # append new list for next row
             if default is not None:
-                for c in range(self.cols):
+                for _ in range(self.cols):
                     matrix[-1].append(default)
 
         return matrix
@@ -449,6 +510,22 @@ class Visualizer:
     def get_node(self, r: int, c: int) -> Node:
         """ Returns the node at the given coord. """
         return self.grid[r][c]
+
+    def loop_all_nodes(self) -> Generator[Node, None, None]:
+        """ Generator that yields all nodes in the grid (gets rid of need for 2 loops). """
+        for r in range(self.rows):
+            for c in range(self.cols):
+                yield self.get_node(r, c)
+
+    def loop_all_coords(self) -> Generator[tuple[int, int], None, None]:
+        """ Generator that yields coords of all nodes in the grid (gets rid of need for 2 loops). """
+        for r in range(self.rows):
+            for c in range(self.cols):
+                yield (r, c)
+
+    def draw_weight(self, node: Node):
+        """ Draws node's weight onto pygame window. """
+        ptext.draw(str(node.weight), centerx=node.x+self.cell_size//2, centery=node.y+self.cell_size//2, fontsize=int(self.cell_size/4*3), color=BLACK)#3:2
 
     # === MAIN ===
     def run(self):
@@ -487,6 +564,9 @@ class Visualizer:
                         self.update_node(node, None)
                     elif self.click_state == BARRIER:  # place barrier node
                         self.place_barrier(node)
+                        self.update_node(node, None)
+                    elif self.click_state == WEIGHTED:  # place weighted node
+                        self.place_weighted(node)
                         self.update_node(node, None)
 
                 # right click, delete node (regardless of click state)
@@ -531,9 +611,11 @@ class Visualizer:
                     elif event.key == pygame.K_b:
                         self.click_state = BARRIER
 
-                    # W, switch click state to place barrier nodes TODO: decide how to handle this with adding the weight
+                    # W, switch click state to place weighted nodes TODO: try to make it so that you can place individual weighted nodes at some point
+                    # W, randomly fill grid with weighted nodes
                     elif event.key == pygame.K_w:
-                        pass
+                        self.click_state = WEIGHTED
+                        # self.generate_weighted_grid()
 
                     # M, generate random maze of barriers
                     elif event.key == pygame.K_m:

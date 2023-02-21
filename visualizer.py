@@ -1,5 +1,6 @@
 from queue import PriorityQueue  # for A*
-from collections import deque  # for BFS & DFS
+from collections import defaultdict, deque  # for BFS & DFS
+from pqdict import pqdict  # for Dijkstra's
 
 from typing import Generator
 from math import inf
@@ -108,7 +109,7 @@ class Visualizer:
         self.algorithms = {
             pygame.K_1: self.dfs,
             pygame.K_2: self.bfs,
-            # pygame.K_3: self.dijkstra,
+            pygame.K_3: self.dijkstra,
             # pygame.K_4: self.a_star
         }
 
@@ -290,7 +291,7 @@ class Visualizer:
                 if event.type == pygame.QUIT:
                     pygame.quit()
 
-            # pops next node to process and colors it
+            # pops next node to process
             curr = queue.popleft()
 
             # if target node is found, traces paths back to start
@@ -308,7 +309,7 @@ class Visualizer:
                     queue.append(adj)
                     if adj != self.target:
                         adj.state = QUEUED
-                    self.update_node(adj)
+                        self.update_node(adj)
 
             # set current state to passed once done processing
             if curr != self.start:
@@ -327,7 +328,7 @@ class Visualizer:
                 if event.type == pygame.QUIT:
                     pygame.quit()
 
-            # pops next node to process and colors it
+            # pops next node to process
             curr = stack.pop()
 
             # if target node is found, traces paths back to start
@@ -345,7 +346,7 @@ class Visualizer:
                     stack.append(adj)
                     if adj != self.target:
                         adj.state = QUEUED
-                    self.update_node(adj)
+                        self.update_node(adj)
 
             # set current state to passed once done processing
             if curr != self.start:
@@ -353,111 +354,58 @@ class Visualizer:
                 self.update_node(curr)
 
 
-    def next_min_dist(self, dist: list, spt: list) -> int:
-        """ Returns the shortest distance node from the set of unexplored nodes. """
+    def dijkstra(self):
+        """ Runs Dijkstra's. """
+        distances, parents = {}, defaultdict(lambda: None, {self.start: None})
+        visited = set()  # keeps track of processed nodes
+        ipq = pqdict({self.start: 0})  # indexed priority queue
 
-        min_dist = inf  # initializes current min distance as int max
-        min_index = -1  # keeps track of index of min distance node
+        # continue running while the MST is not complete and there are still edges in the queue to process
+        while len(ipq) > 0:
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    pygame.quit()
 
-        for u in range(self.vertices):  # for node in vertices
-            # set node as new min if node not explored and closer than current min
-            if not spt[u] and dist[u] < min_dist:
-                min_dist = dist[u]
-                min_index = u
+            # pops next node to process
+            curr, distance = ipq.popitem()  # pop next smallest edge to process
+            distances[curr] = distance
 
-        return min_index
+            # if target node is found, traces paths back to start
+            if curr == self.target:
+                curr.state = TARGET  # color curr back to target
+                self.update_node(curr)
+                self.trace_path(parents)
+                return
 
-    # def dijkstra(self, src: int, dest: int) -> list:  # O(n^2)
-    #     """ Returns a list of the shortest paths from the source node to
-    #         every node in the graph (calculated using Dijkstra's algorithm). """
+            visited.add(curr)  # set current node as visited
 
-    #     dist = [inf] * self.vertices  # list keeps track of node's distances
-    #     dist[src] = 0  # distance from source to itself is clearly 0
-    #     spt = [False] * self.vertices  # keeps track of shortest path to each node
+            # queue adjacent edges
+            for adj in self.adjacent_nodes(curr):
+                # add adjacent edge if its node hasn't been visited
+                if adj in visited:
+                    continue
 
-    #     # iterates number of nodes times
-    #     for iteration in range(self.vertices):  # O(n)
-    #         if spt[dest]:
-    #             return dist[dest]
+                # color the adjacent node
+                if adj != self.target and not adj.is_barrier():
+                    adj.state = QUEUED
+                    self.update_node(adj)
 
-    #         # picks the next closest out of all the unexplored nodes
-    #         curr = self.next_min_dist(dist, spt)
+                # simply add edge if node isn't already queue
+                if adj not in ipq:
+                    parents[adj] = curr
+                    ipq.additem(adj, distance + adj.weight)
 
-    #         # adds next closest to the shortest path tree
-    #         spt[curr] = True
+                # else the node is already queued so relax the edge
+                elif distance + adj.weight < ipq[adj]:
+                    parents[adj] = curr
+                    ipq.updateitem(adj, distance + adj.weight)
 
-    #         # iterates through every node as destination
-    #         for dst in range(self.vertices):  # O(n)
-    #             """ I separated the conditional to explain and understand it a lot better. """
-    #             # if not spt[dst] and self.graph[curr][dst] > 0 and dist[dst] > dist[curr] + self.graph[curr][dst]:
+            # set current state to passed after it finishes processing
+            if curr != self.start:
+                curr.state = PASSED
+                self.update_node(curr)
 
-    #             # then this node was already checked
-    #             if spt[dst]:
-    #                 continue
 
-    #             # then this is the same node or there's no edge between them
-    #             elif self.graph[curr][dst] == 0:
-    #                 continue
-
-    #             # dest's dist should be big, if not then it was already calculated
-    #             elif dist[dst] <= dist[curr] + self.graph[curr][dst]:
-    #                 continue
-
-    #             """ calculate destination's path distance as current's path
-    #             distance plus distance from current to destination. """
-    #             dist[dst] = dist[curr] + self.graph[curr][dst]
-
-    #     return dist  # returns the list of shortest paths from the source to every node
-
-    # def dijkstra(self):
-    #     """ Runs Dijkstra's search for target node and then traces path back to start (weighted). """
-    #     node_count = self.rows * self.cols
-    #     # TODO: fix comment for difference of distances and shortest paths set
-    #     # start and target node's coords
-    #     (sr, sc), (tr, tc) = self.start.get_coord(), self.target.get_coord()
-
-    #     distances = self.gen_matrix(inf)  # keeps track of every node's distance from start node
-    #     distances[sr][sc] = 0  # distance from source to itself is clearly 0
-    #     spt = self.gen_matrix(False)  # keeps track of shortest path to each node
-
-    #     for _ in range(node_count):
-    #         if spt[tr][tc]:
-    #             curr.state = TARGET  # color curr back to target
-    #             self.update_node(curr)
-    #             self.trace_path(distances[tr][tc])
-    #             return
-
-    #         # picks the next closest node out of all the unexplored nodes
-    #         cr, cc = self.next_min_dist(distances, spt)
-
-    #         # adds next closest node to the shortest path tree
-    #         spt[cr][cc] = True
-
-    #         # iterates through every node as destination
-    #         for r in range(self.rows):
-    #             for c in range(self.cols):
-    #                 """ I separated the conditional to explain and understand it a lot better. """
-    #                 # if not spt[dst] and self.graph[curr][dst] > 0 and dist[dst] > dist[curr] + self.graph[curr][dst]:
-
-    #                 # NOTE: cr, cc is curr and r, c is dst
-
-    #                 # then this node was already checked
-    #                 if spt[r][c]:
-    #                     continue
-
-    #                 # then this is the same node or there's no edge between them
-    #                 elif (cr, cc) == (r, c):
-    #                     continue
-
-    #                 # dest's distance should be big, if not then it was already calculated
-    #                 elif distances[r][c] <= distances[cr][cc] + self.graph[curr][dst]:
-    #                     continue
-
-    #                 """ calculate destination's path distance as current's path
-    #                 distance plus distance from current to destination. """
-    #                 dist[dst] = dist[curr] + self.graph[curr][dst]
-
-    #     return dist  # returns the list of shortest paths from the source to every node
 
 
     def a_star(self):

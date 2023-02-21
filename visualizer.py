@@ -16,8 +16,8 @@ from typing import Generator
 from math import inf
 
 # FRONTEND
-WIN_HEIGHT = 900  # window height
-WAIT = 0.0015  # in seconds
+WIN_HEIGHT = 1200#900  # window height
+WAIT = 0.003#15  # in seconds
 
 WHITE = (255, 255, 255)
 BLACK = (0, 0, 0)
@@ -135,7 +135,7 @@ class Visualizer:
             pygame.K_1: self.dfs,
             pygame.K_2: self.bfs,
             pygame.K_3: self.dijkstra,
-            # pygame.K_4: self.a_star
+            pygame.K_4: self.a_star
         }
 
     def reset_grid(self):
@@ -145,7 +145,7 @@ class Visualizer:
         # goes through entire grid and sets each node's weight back to 0.
         for r in range(self.rows):
             for c in range(self.cols):
-                self.get_node(r, c).state = UNWEIGHTED
+                self.get_node(r, c).reset()
 
     def clean_grid(self):
         """ Resets nodes colored during pathfinding. """
@@ -304,21 +304,25 @@ class Visualizer:
     def trace_path(self, parents: dict[Node: Node]):
         """ Traces path back to start node given parent dict (just visually). """
         curr = parents[self.target]  # starts trace from target node
-        ## path = [self.target]
 
         # keeps tracing each node's parent and building the path until it reaches the start node
         while curr != self.start:
             curr.state = PATH
             self.update_node(curr, WAIT*6)
-            ## path.append(curr)  # adds node to path
             curr = parents[curr]  # traces to parent
+        # TODO: drawing the arrows of every node's parent would be a dope little side thing to make sometime
 
-        ## path.append(self.start)  # adds start node to complete the path
-        ## path.reverse()  # and reverses path since it was built backwards
+    def trace_path_a_star(self, parents: dict[Node: Node], heuristics: dict[Node: int]):
+        """ Traces path back to start node given parent dict (just visually). """
+        curr = parents[self.target]  # starts trace from target node
 
-        ## return path
-
-    # TODO: drawing the arrows of every node's parent would be a dope little side thing to make sometime
+        # keeps tracing each node's parent and building the path until it reaches the start node
+        while curr != self.start:
+            curr.state = PATH
+            self.update_node(curr, WAIT*6)
+            self.draw_number(curr, heuristics[curr])
+            curr = parents[curr]  # traces to parent
+        pygame.display.update()
 
     def bfs(self):
         """ Runs breadth first search for target node and then traces path back to start (unweighted). """
@@ -404,7 +408,7 @@ class Visualizer:
         visited = set()  # keeps track of processed nodes
         ipq = pqdict({self.start: 0})  # indexed priority queue
 
-        # continue running while the MST is not complete and there are still edges in the queue to process
+        # continue searching until the target node is found or there are no more nodes to check
         while len(ipq) > 0:
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
@@ -417,8 +421,9 @@ class Visualizer:
             # if target node is found, traces paths back to start
             if curr == self.target:
                 curr.state = TARGET  # color curr back to target
-                self.update_node(curr, wait=0.15)
+                self.update_node(curr)
                 self.trace_path(parents)
+                print('path distance:', distance)
                 return
 
             visited.add(curr)  # set current node as visited
@@ -426,13 +431,13 @@ class Visualizer:
             # queue adjacent edges
             for adj in self.adjacent_nodes(curr):
                 # add adjacent edge if its node hasn't been visited
-                if adj in visited:
+                if adj in visited or adj.is_barrier():
                     continue
 
                 # color the adjacent node
-                if adj != self.target and not adj.is_barrier():
+                if adj != self.target:
                     adj.state = QUEUED
-                    self.update_node(adj, wait=0.15)
+                    self.update_node(adj)
 
                 # simply add edge if node isn't already queue
                 if adj not in ipq:
@@ -447,11 +452,73 @@ class Visualizer:
             # set current state to passed after it finishes processing
             if curr != self.start:
                 curr.state = PASSED
-                self.update_node(curr, wait=0.15)
+                self.update_node(curr)
 
     def a_star(self):
         """ Runs A* 😍😍😍 for target node and then traces path back to start (weighted). """
         print('running A*...')
+        heuristics, distances, parents = {self.start: self.heuristic(self.start, self.target)}, {self.start: 0}, defaultdict(lambda: None, {self.start: None})
+        open_set = pqdict({self.start: 0})  # indexed priority queue
+        closed_set = set()  # keeps track of processed nodes
+
+        # continue running while the MST is not complete and there are still edges in the queue to process
+        while len(open_set) > 0:
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    pygame.quit()
+
+            # pops next node to process
+            curr, distance = open_set.popitem()  # pop next smallest edge to process
+
+            # if target node is found, traces paths back to start
+            if curr == self.target:
+                curr.state = TARGET  # color curr back to target
+                self.update_node(curr)
+                self.trace_path_a_star(parents, heuristics)
+                print('path distance:', distance)
+                return
+
+            closed_set.add(curr)  # moves current node to closed set (visited)
+
+            # queue adjacent edges
+            for adj in self.adjacent_nodes(curr):
+                # add the edge if its node isn't already in the closed set
+                if adj in closed_set or adj.is_barrier():
+                    continue
+
+                # F (total cost) = G (distance cost) + H (heuristic cost)
+                g_cost, h_cost = distances[curr] + adj.weight, self.heuristic(adj, self.target)
+                f_cost = g_cost + h_cost
+                heuristics[adj] = h_cost
+
+                # color the adjacent node
+                if adj != self.target:
+                    adj.state = QUEUED
+                    self.update_node(adj)
+                    self.draw_number(adj, f_cost)
+
+                # simply add the edge if its node isn't already queued
+                if adj not in open_set:
+                    distances[adj] = g_cost
+                    parents[adj] = curr
+                    open_set.additem(adj, f_cost)
+
+                # relax the edge to better cost if node already queued
+                elif f_cost < open_set[adj]:
+                    distances[adj] = g_cost
+                    parents[adj] = curr
+                    open_set.updateitem(adj, f_cost)
+
+            # set current state to passed after it finishes processing
+            if curr != self.start:
+                curr.state = PASSED
+                self.update_node(curr)
+                self.draw_number(curr, distance)
+
+    def heuristic(self, nodeA: Node, nodeB: Node) -> int:
+        """ Calculates the manhattan distance from node A to node B. """
+        # return abs(nodeA.x - nodeB.x) + abs(nodeA.y - nodeB.y)
+        return abs(nodeA.row - nodeB.row) + abs(nodeA.col - nodeB.col)
 
     # weighted graphs/maze generation algorithms
     def generate_weighted_grid(self, density: float = 0.3, max_weight: int = MAX_NODE_WEIGHT):
@@ -523,9 +590,13 @@ class Visualizer:
             for c in range(self.cols):
                 yield (r, c)
 
+    def draw_number(self, node: Node, value: int):
+        """ Draws given value over node onto pygame window. """
+        ptext.draw(str(value), centerx=node.x+self.cell_size//2, centery=node.y+self.cell_size//2, fontsize=int(self.cell_size/2), color=BLACK)#4*3
+
     def draw_weight(self, node: Node):
         """ Draws node's weight onto pygame window. """
-        ptext.draw(str(node.weight), centerx=node.x+self.cell_size//2, centery=node.y+self.cell_size//2, fontsize=int(self.cell_size/4*3), color=BLACK)#3:2
+        ptext.draw(str(node.weight), centerx=node.x+self.cell_size//2, centery=node.y+self.cell_size//2, fontsize=int(self.cell_size/2), color=BLACK)#3*2
 
     # === MAIN ===
     def run(self):
@@ -614,8 +685,8 @@ class Visualizer:
                     # W, switch click state to place weighted nodes TODO: try to make it so that you can place individual weighted nodes at some point
                     # W, randomly fill grid with weighted nodes
                     elif event.key == pygame.K_w:
-                        self.click_state = WEIGHTED
-                        # self.generate_weighted_grid()
+                        # self.click_state = WEIGHTED
+                        self.generate_weighted_grid()
 
                     # M, generate random maze of barriers
                     elif event.key == pygame.K_m:

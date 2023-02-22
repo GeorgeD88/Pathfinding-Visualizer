@@ -16,7 +16,7 @@ from typing import Generator
 from math import inf
 
 # FRONTEND
-WIN_HEIGHT = 1200#900  # window height
+WIN_HEIGHT = 900  # window height
 WAIT = 0.003#15  # in seconds
 
 WHITE = (255, 255, 255)

@@ -13,7 +13,7 @@ import ptext
 
 # miscellaneous
 from typing import Generator
-from math import inf
+from math import inf, sqrt
 
 # FRONTEND
 WIN_HEIGHT = 900  # window height
@@ -312,7 +312,7 @@ class Visualizer:
             curr = parents[curr]  # traces to parent
         # TODO: drawing the arrows of every node's parent would be a dope little side thing to make sometime
 
-    def trace_path_a_star(self, parents: dict[Node: Node], heuristics: dict[Node: int]):
+    def trace_path_a_star(self, parents: dict[Node: Node], distances: dict[Node: int], heuristics: dict[Node: int]):
         """ Traces path back to start node given parent dict (just visually). """
         curr = parents[self.target]  # starts trace from target node
 
@@ -320,7 +320,7 @@ class Visualizer:
         while curr != self.start:
             curr.state = PATH
             self.update_node(curr, WAIT*6)
-            self.draw_number(curr, heuristics[curr])
+            self.draw_number(curr, distances[curr] + heuristics[curr])  # prints F-cost
             curr = parents[curr]  # traces to parent
         pygame.display.update()
 
@@ -474,22 +474,21 @@ class Visualizer:
             if curr == self.target:
                 curr.state = TARGET  # color curr back to target
                 self.update_node(curr)
-                self.trace_path_a_star(parents, heuristics)
+                self.trace_path_a_star(parents, distances, heuristics)
                 print('path distance:', distance)
                 return
 
             closed_set.add(curr)  # moves current node to closed set (visited)
 
             # queue adjacent edges
-            for adj in self.adjacent_nodes(curr):
+            for adj, weight in self.adjacent_Astar_nodes(curr):
                 # add the edge if its node isn't already in the closed set
                 if adj in closed_set or adj.is_barrier():
                     continue
 
                 # F (total cost) = G (distance cost) + H (heuristic cost)
-                g_cost, h_cost = distances[curr] + adj.weight, self.heuristic(adj, self.target)
+                g_cost, h_cost = distances[curr] + weight, self.heuristic(adj, self.target)
                 f_cost = g_cost + h_cost
-                heuristics[adj] = h_cost
 
                 # color the adjacent node
                 if adj != self.target:
@@ -500,12 +499,14 @@ class Visualizer:
                 # simply add the edge if its node isn't already queued
                 if adj not in open_set:
                     distances[adj] = g_cost
+                    heuristics[adj] = h_cost
                     parents[adj] = curr
                     open_set.additem(adj, f_cost)
 
                 # relax the edge to better cost if node already queued
                 elif f_cost < open_set[adj]:
                     distances[adj] = g_cost
+                    heuristics[adj] = h_cost
                     parents[adj] = curr
                     open_set.updateitem(adj, f_cost)
 
@@ -514,6 +515,33 @@ class Visualizer:
                 curr.state = PASSED
                 self.update_node(curr)
                 self.draw_number(curr, distance)
+
+    def adjacent_Astar_nodes(self, node: Node) -> Generator[Node, None, None]:
+        """ Generates the traversable nodes adjacent to the given node (specifically for A*). """
+        for offset in COORD_OFFSETS:
+            # offsets cord, then yields node at that coord as long as coord is within bounds
+            adj = self.offset_coord(node.get_coord(), offset)
+            if self.in_bounds(*adj):
+                yield self.get_node(*adj), 1  # weight of 1 for adjacent sides
+
+    def adjacent_Astar_nodes_diag(self, node: Node) -> Generator[Node, None, None]:
+        # FIXME: I FORGOT I NEED TO IMPLEMENT THE THING WHERE IF ITS CORNER, IT CANT GO THROUGH BARRIERS
+        coord = node.get_coord()
+        for ar, ac in COORD_OFFSETS_CORNERS:
+            # offsets cord, then yields node at that coord as long as coord is within bounds
+            adj = self.offset_coord(coord, (ar, ac))
+
+            # skip if out of bounds
+            if not self.in_bounds(*adj):
+                continue
+
+            if ar == ac:  # is diagonal
+                # between barrier
+                side1, side2 = self.offset_coord(coord, (ar, 0)), self.offset_coord(coord, (0, ac))
+                if self.get_node(*side1).is_barrier() and self.get_node(*side2).is_barrier():
+                    continue
+
+            yield self.get_node(*adj), sqrt(2) if ar == ac else 1  # sqrt(2) is distance to diagonal nodes
 
     def heuristic(self, nodeA: Node, nodeB: Node) -> int:
         """ Calculates the manhattan distance from node A to node B. """
@@ -590,9 +618,10 @@ class Visualizer:
             for c in range(self.cols):
                 yield (r, c)
 
-    def draw_number(self, node: Node, value: int):
+    def draw_number(self, node: Node, value: int or float):
         """ Draws given value over node onto pygame window. """
-        ptext.draw(str(value), centerx=node.x+self.cell_size//2, centery=node.y+self.cell_size//2, fontsize=int(self.cell_size/2), color=BLACK)#4*3
+        ptext.draw(f'{value:.2f}' if isinstance(value, float) else str(value), centerx=node.x+self.cell_size//2, centery=node.y+self.cell_size//2, fontsize=int(self.cell_size/2), color=BLACK)#4*3
+        # round the decimal
 
     def draw_weight(self, node: Node):
         """ Draws node's weight onto pygame window. """
